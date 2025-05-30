@@ -1,16 +1,13 @@
 import requests
-import numpy as np
 import pandas as pd
 import logging
-import asyncio
-import sys
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Logging
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 
-# API Keys
+# API Keys and constants
 TWELVE_API_KEY = '14ee1e5c333945c190f19c097138bdd5'
 TELEGRAM_TOKEN = '8030718150:AAFp5QuwaC-103ruvB5TsBMGY5MwMvkq-5g'
 
@@ -18,7 +15,7 @@ SYMBOL = 'USD/JPY'
 INTERVAL = '1min'
 PERIOD = 14
 
-# Fetch data
+# Fetch data from Twelve Data API
 def fetch_data(symbol=SYMBOL, interval=INTERVAL, outputsize=100):
     url = f'https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey={TWELVE_API_KEY}'
     response = requests.get(url)
@@ -30,7 +27,7 @@ def fetch_data(symbol=SYMBOL, interval=INTERVAL, outputsize=100):
     df = df.sort_values('datetime')
     return df
 
-# Technical indicators
+# Technical indicator calculations
 def calculate_rsi(series, period=PERIOD):
     delta = series.diff()
     gain = delta.clip(lower=0)
@@ -83,7 +80,7 @@ def calculate_atr(high, low, close, period=PERIOD):
     ], axis=1).max(axis=1)
     return tr.rolling(window=period).mean()
 
-# Analyze signals
+# Analyze signals from indicators
 def analyze_signals(df):
     close = df['close']
     high = df['high']
@@ -157,7 +154,7 @@ def analyze_signals(df):
 
     return signals, confidence, recommendation
 
-# Telegram handlers
+# Telegram command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 Hello! Use /trade to get USD/JPY signals.")
 
@@ -177,22 +174,11 @@ async def trade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error("Error in trade command", exc_info=True)
         await update.message.reply_text(f"❌ Error: {str(e)}")
 
-# Start the bot with event loop safety
-def safe_run():
-    async def runner():
-        app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("trade", trade))
-        logging.info("Bot is running...")
-        await app.run_polling()
-
-    try:
-        asyncio.run(runner())
-    except RuntimeError as e:
-        if "Cannot close a running event loop" in str(e):
-            loop = asyncio.get_event_loop()
-            loop.create_task(runner())
-            loop.run_forever()
-
+# Main entry point to start the bot
 if __name__ == '__main__':
-    safe_run()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("trade", trade))
+
+    logging.info("Bot is starting...")
+    app.run_polling()
