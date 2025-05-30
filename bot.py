@@ -8,7 +8,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 # Your API keys here
-TWELVE_API_KEY = 'YOUR_TWELVE_DATA_API_KEY'
+TWELVE_API_KEY = '14ee1e5c333945c190f19c097138bdd5'
 TELEGRAM_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
 
 SYMBOL = 'USD/JPY'
