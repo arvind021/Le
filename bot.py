@@ -1,13 +1,15 @@
 import requests
 import numpy as np
 import pandas as pd
-from telegram.ext import Updater, CommandHandler
 import logging
+import asyncio
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Configure logging
+# Logging
 logging.basicConfig(level=logging.INFO)
 
-# Your API keys here
+# API Keys
 TWELVE_API_KEY = '14ee1e5c333945c190f19c097138bdd5'
 TELEGRAM_TOKEN = '8030718150:AAFp5QuwaC-103ruvB5TsBMGY5MwMvkq-5g'
 
@@ -15,7 +17,7 @@ SYMBOL = 'USD/JPY'
 INTERVAL = '1min'
 PERIOD = 14
 
-# Fetch OHLCV data from Twelve Data
+# Fetch data
 def fetch_data(symbol=SYMBOL, interval=INTERVAL, outputsize=100):
     url = f'https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey={TWELVE_API_KEY}'
     response = requests.get(url)
@@ -29,8 +31,7 @@ def fetch_data(symbol=SYMBOL, interval=INTERVAL, outputsize=100):
     df = df.sort_values('datetime')
     return df
 
-# Indicator calculations
-
+# Indicator Functions
 def calculate_rsi(series, period=PERIOD):
     delta = series.diff()
     gain = delta.clip(lower=0)
@@ -81,22 +82,19 @@ def calculate_stoch_rsi(rsi_series, period=PERIOD):
     min_rsi = rsi_series.rolling(window=period).min()
     max_rsi = rsi_series.rolling(window=period).max()
     stoch_rsi = (rsi_series - min_rsi) / (max_rsi - min_rsi)
-    stoch_rsi = stoch_rsi * 100
-    return stoch_rsi
+    return stoch_rsi * 100
 
 def calculate_vwap(df):
-    vwap = (df['close'] * df['volume']).cumsum() / df['volume'].cumsum()
-    return vwap
+    return (df['close'] * df['volume']).cumsum() / df['volume'].cumsum()
 
 def calculate_atr(high, low, close, period=PERIOD):
     tr1 = high - low
     tr2 = (high - close.shift()).abs()
     tr3 = (low - close.shift()).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = tr.rolling(window=period).mean()
-    return atr
+    return tr.rolling(window=period).mean()
 
-# Combine signals and compute confidence
+# Analyze signals
 def analyze_signals(df):
     close = df['close']
     high = df['high']
@@ -111,12 +109,10 @@ def analyze_signals(df):
     vwap = calculate_vwap(df)
     atr = calculate_atr(high, low, close)
 
-    latest = -1  # last index
-
+    latest = -1
     signals = []
     confidence = 0
 
-    # RSI Signal
     if rsi.iloc[latest] < 30:
         signals.append("RSI indicates Oversold (Bullish)")
         confidence += 15
@@ -124,7 +120,6 @@ def analyze_signals(df):
         signals.append("RSI indicates Overbought (Bearish)")
         confidence += 15
 
-    # MACD Signal
     if macd.iloc[latest] > signal.iloc[latest]:
         signals.append("MACD Bullish crossover")
         confidence += 15
@@ -132,22 +127,19 @@ def analyze_signals(df):
         signals.append("MACD Bearish crossover")
         confidence += 15
 
-    # Bollinger Bands Signal
     if close.iloc[latest] < lower_bb.iloc[latest]:
-        signals.append("Price below lower Bollinger Band (Bullish reversal possible)")
+        signals.append("Price below lower Bollinger Band (Bullish)")
         confidence += 10
     elif close.iloc[latest] > upper_bb.iloc[latest]:
-        signals.append("Price above upper Bollinger Band (Bearish reversal possible)")
+        signals.append("Price above upper Bollinger Band (Bearish)")
         confidence += 10
 
-    # ADX Signal
     if adx.iloc[latest] > 25:
         signals.append("Strong Trend (ADX > 25)")
         confidence += 10
     else:
-        signals.append("Weak or No Trend (ADX < 25)")
+        signals.append("Weak/No Trend (ADX < 25)")
 
-    # Stochastic RSI Signal
     if stoch_rsi.iloc[latest] < 20:
         signals.append("Stoch RSI Oversold (Bullish)")
         confidence += 10
@@ -155,21 +147,15 @@ def analyze_signals(df):
         signals.append("Stoch RSI Overbought (Bearish)")
         confidence += 10
 
-    # VWAP Signal
     if close.iloc[latest] > vwap.iloc[latest]:
         signals.append("Price above VWAP (Bullish)")
         confidence += 10
     else:
         signals.append("Price below VWAP (Bearish)")
 
-    # ATR Signal (Volatility info)
     signals.append(f"ATR (volatility): {atr.iloc[latest]:.5f}")
 
-    # Limit confidence to 100
-    if confidence > 100:
-        confidence = 100
-
-    # Final recommendation logic simplified
+    confidence = min(confidence, 100)
     bullish = sum(1 for s in signals if 'Bullish' in s)
     bearish = sum(1 for s in signals if 'Bearish' in s)
 
@@ -182,34 +168,35 @@ def analyze_signals(df):
 
     return signals, confidence, recommendation
 
-# Telegram bot command handler
-def start(update, context):
-    update.message.reply_text("Hello! Send /trade to get the latest trading signals for USD/JPY 1min timeframe.")
+# Telegram command handlers
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👋 Hello! Use /trade to get the latest USD/JPY 1-minute trade signals.")
 
-def trade(update, context):
+async def trade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        update.message.reply_text("Fetching data and analyzing... Please wait.")
+        await update.message.reply_text("⏳ Fetching data and analyzing... Please wait.")
         df = fetch_data()
         signals, confidence, recommendation = analyze_signals(df)
 
         message = f"📊 USD/JPY 1-Minute Trade Signals:\n\n"
         for s in signals:
             message += f"• {s}\n"
-        message += f"\nConfidence Level: {confidence}%\nRecommendation: {recommendation}"
-        update.message.reply_text(message)
-
+        message += f"\n⚡ Confidence Level: {confidence}%\n📌 Recommendation: {recommendation}"
+        await update.message.reply_text(message)
     except Exception as e:
-        update.message.reply_text(f"Error: {str(e)}")
+        logging.error("Error in trade command", exc_info=True)
+        await update.message.reply_text(f"❌ Error: {str(e)}")
 
-def main():
-    updater = Updater(TELEGRAM_TOKEN, use_context=True)
-    dp = updater.dispatcher
+# Main function
+async def main():
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("trade", trade))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("trade", trade))
 
-    updater.start_polling()
-    updater.idle()
+    logging.info("Bot started...")
+    await app.run_polling()
 
+# Run the bot
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
